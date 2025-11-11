@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <!-- SEO OPTIMIZATION: Title, Description, and Keywords -->
+    <title>Range Coding & Entropy: Data Compression Demo for LLM Principles</title>
+    <meta name="description" content="Interactive demonstration of Range Coding (a form of Arithmetic Coding) to show lossless data compression to the theoretical entropy limit. Includes Big Number arithmetic for high precision, essential for understanding bit-efficient encoding used in LLMs.">
+    <meta name="keywords" content="Range Coding, Arithmetic Coding, Entropy Coding, Data Compression, Lossless Compression, LLM Principles, Information Theory, Big Number, High Precision JavaScript, Educational Demo">
+
+    <!-- SEO OPTIMIZATION: Structured Data (Schema Markup for LLMs/Search Engines) -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "SoftwareApplication",
+      "name": "Range Coding & Entropy Demo",
+      "applicationCategory": "EducationalSoftware",
+      "operatingSystem": "Web Browser",
+      "description": "A client-side interactive tool demonstrating how Range Coding achieves near-perfect lossless compression by encoding data into a single high-precision number, illustrating core principles of information theory and LLM token efficiency.",
+      "inLanguage": "en",
+      "offers": {
+        "@type": "Offer",
+        "price": "0",
+        "priceCurrency": "USD"
+      }
+    }
+    </script>
+
+    <!-- Load Tailwind CSS for styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f7f9fb;
+        }
+    </style>
+    <!-- Load Big.js for high-precision arithmetic (Crucial for lossless Range Coding) -->
+    <script src="https://cdn.jsdelivr.net/npm/big.js@6.2.1/big.min.js"></script>
+</head>
+<body class="flex items-center justify-center min-h-screen p-4">
+
+    <div class="w-full max-w-4xl bg-white shadow-2xl rounded-xl p-8 space-y-8">
+        <header>
+            <h1 class="text-3xl font-bold text-center text-gray-800">
+                Entropy-Based Compression (Range Coding)
+            </h1>
+            <p class="text-center text-sm text-gray-500 mt-2">
+                Demonstrates how information (like the internal language of LLMs) can be losslessly encoded to the theoretical limit of its entropy.
+            </p>
+        </header>
+
+        <!-- INPUT SECTION -->
+        <section class="bg-gray-50 p-6 rounded-lg border border-gray-200">
+            <label for="inputData" class="block text-lg font-medium text-gray-700 mb-2">Original Data (Symbol Sequence)</label>
+            <input type="text" id="inputData" value="AAAAAAAAABBCDE"
+                   class="w-full p-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 text-lg font-mono">
+        </section>
+
+        <!-- INFO & BUTTONS -->
+        <div class="grid md:grid-cols-2 gap-6">
+            <div class="space-y-3">
+                <div class="p-3 bg-blue-50 rounded-lg text-blue-800 text-sm">
+                    <h2 class="font-bold mb-1">Theoretical Limits</h2>
+                    <p><strong>Theoretical Entropy:</strong> <span id="entropyRate">0.00</span> bits/symbol</p>
+                    <p><strong>Min. Total Bits:</strong> <span id="minTotalBits">0.00</span> bits</p>
+                </div>
+                <button onclick="handleCompression()"
+                        class="w-full py-3 px-4 bg-blue-600 text-white font-semibold rounded-lg shadow-md hover:bg-blue-700 transition duration-150 transform hover:scale-[1.01] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2">
+                    1. Compress (Encoding)
+                </button>
+            </div>
+            <div class="space-y-3">
+                <div class="p-3 bg-yellow-50 rounded-lg text-yellow-800 text-sm">
+                    <h2 class="font-bold mb-1">Encoding Details</h2>
+                    <p><strong>Precision Used:</strong> <span id="precisionDisplay">120</span> decimal places (Big.js)</p>
+                    <p><strong>Encoded Length:</strong> <span id="compressedLength">0</span> digits</p>
+                </div>
+                <button onclick="handleDecompression()"
+                        class="w-full py-3 px-4 bg-green-600 text-white font-semibold rounded-lg shadow-md hover:bg-green-700 transition duration-150 transform hover:scale-[1.01] focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2">
+                    2. Decompress (Decoding)
+                </button>
+            </div>
+        </div>
+
+        <!-- OUTPUT SECTION -->
+        <section class="space-y-4">
+            <!-- Compressed Output -->
+            <div class="bg-indigo-50 p-4 rounded-lg">
+                <p class="font-medium text-indigo-800 mb-2">Compressed Output (High-Precision Number):</p>
+                <code id="compressedOutput" class="block bg-white p-2 rounded text-sm break-all font-mono text-gray-700"></code>
+            </div>
+
+            <!-- Decompressed Output -->
+            <div class="bg-purple-50 p-4 rounded-lg">
+                <p class="font-medium text-purple-800 mb-2">Decompressed Data:</p>
+                <code id="decompressedOutput" class="block bg-white p-2 rounded text-lg break-all font-mono text-gray-700"></code>
+            </div>
+
+            <!-- Status and Verification -->
+            <div id="statusMessage" class="py-3 px-4 rounded-lg font-semibold text-center hidden"></div>
+        </section>
+    </div>
+
+    <script>
+        // --- Global constants for Big.js ---
+        // Setting precision to 120 decimal places, which is necessary for truly lossless encoding of the test string.
+        Big.DP = 120;
+        const BIG_ONE = new Big(1);
+        const BIG_ZERO = new Big(0);
+
+        // Epsilon to correct for Big.js rounding errors at the upper interval bound during decoding. CRUCIAL for lossless decoding!
+        const EPSILON = new Big('1e-118');
+
+        document.getElementById('precisionDisplay').textContent = Big.DP;
+
+        // --- Utility Functions ---
+
+        function calculateFrequencies(data) {
+            const freqs = {};
+            for (const char of data) {
+                freqs[char] = (freqs[char] || 0) + 1;
+            }
+            return freqs;
+        }
+
+        function calculateEntropy(freqs, total) {
+            let entropy = 0.0;
+            for (const freq of Object.values(freqs)) {
+                if (freq > 0) {
+                    const prob = freq / total;
+                    // Formula: - sum( p * log2(p) )
+                    entropy -= prob * Math.log2(prob);
+                }
+            }
+            return entropy;
+        }
+
+        function setStatus(message, type = 'info') {
+            const statusDiv = document.getElementById('statusMessage');
+            statusDiv.textContent = message;
+            statusDiv.className = 'py-3 px-4 rounded-lg font-semibold text-center';
+            statusDiv.classList.remove('hidden', 'bg-red-100', 'text-red-800', 'bg-green-100', 'text-green-800');
+
+            if (type === 'success') {
+                statusDiv.classList.add('bg-green-100', 'text-green-800');
+            } else if (type === 'error') {
+                statusDiv.classList.add('bg-red-100', 'text-red-800');
+            } else {
+                 statusDiv.classList.add('bg-blue-100', 'text-blue-800');
+            }
+            statusDiv.classList.remove('hidden');
+        }
+
+        // --- RangeCoder Logic (Using Big.js for precision) ---
+
+        class RangeCoder {
+            constructor(probability_model) {
+                this.model = this._get_cumulative_probabilities(probability_model);
+            }
+
+            _get_cumulative_probabilities(freqs) {
+                const total = Object.values(freqs).reduce((a, b) => a + b, 0);
+                if (total === 0) return {};
+
+                const model = {};
+                let cumulative_prob = BIG_ZERO;
+
+                // Sort symbols for deterministic encoding/decoding
+                const sortedKeys = Object.keys(freqs).sort();
+
+                for (let i = 0; i < sortedKeys.length; i++) {
+                    const symbol = sortedKeys[i];
+                    // Use Big for all probability calculations
+                    const prob = new Big(freqs[symbol]).div(new Big(total));
+                    model[symbol] = [cumulative_prob, cumulative_prob.plus(prob)];
+                    cumulative_prob = cumulative_prob.plus(prob);
+                }
+
+                // Ensure the last interval ends exactly at 1.0 (critical for final symbol)
+                if (sortedKeys.length > 0) {
+                    const lastSymbol = sortedKeys[sortedKeys.length - 1];
+                    model[lastSymbol][1] = BIG_ONE;
+                }
+
+                return model;
+            }
+
+            compress(data) {
+                if (!data) return "0";
+
+                let low = BIG_ZERO;
+                let high = BIG_ONE;
+
+                for (const symbol of data) {
+                    if (!this.model[symbol]) {
+                        throw new Error(`Unknown symbol: ${symbol}`);
+                    }
+
+                    const range_width = high.minus(low);
+                    const [start_prob, end_prob] = this.model[symbol];
+
+                    // Update bounds for the new sub-interval
+                    high = low.plus(range_width.times(end_prob));
+                    low = low.plus(range_width.times(start_prob));
+                }
+
+                // Return the midpoint of the final interval for maximum stability.
+                return low.plus(high).div(new Big(2)).toString();
+            }
+
+            decompress(encoded_value_str, length) {
+                let current_value;
+                try {
+                    current_value = new Big(encoded_value_str);
+                } catch (e) {
+                    setStatus("Error: Invalid encoded value format.", 'error');
+                    return null;
+                }
+
+                if (!this.model || length === 0) return "";
+
+                let output = "";
+
+                for (let i = 0; i < length; i++) {
+                    let found_symbol = null;
+
+                    for (const [symbol, [start_prob, end_prob]] of Object.entries(this.model)) {
+
+                        // The critical check with EPSILON to counter rounding errors
+                        if (start_prob.lte(current_value) && current_value.lt(end_prob.plus(EPSILON))) {
+                            found_symbol = symbol;
+                            break;
+                        }
+                    }
+
+                    if (found_symbol === null) {
+                        setStatus(`CRITICAL ERROR at symbol ${i + 1}: Decoding failed. Precision might be insufficient!`, 'error');
+                        return output;
+                    }
+
+                    output += found_symbol;
+
+                    // Update the value relative to the current interval
+                    const [start_prob, end_prob] = this.model[found_symbol];
+                    const range_width = end_prob.minus(start_prob);
+
+                    // Normalize current_value to the new [0, 1) interval
+                    if (range_width.gt(BIG_ZERO)) {
+                         current_value = current_value.minus(start_prob).div(range_width);
+                    } else {
+                         setStatus("ERROR: Interval width is zero. Aborting.", 'error');
+                         return output;
+                    }
+                }
+
+                return output;
+            }
+        }
+
+        // --- Event Handling ---
+
+        let compressedValue = ""; // Stores the compressed string between steps
+        let globalModel = null;
+        let originalData = "";
+
+        function handleCompression() {
+            originalData = document.getElementById('inputData').value.toUpperCase().trim();
+            const dataLength = originalData.length;
+
+            if (dataLength === 0) {
+                setStatus("Please enter data to compress.", 'error');
+                return;
+            }
+
+            // 1. Prepare model and calculate entropy
+            const freqs = calculateFrequencies(originalData);
+            const total = dataLength;
+            const entropyRate = calculateEntropy(freqs, total);
+            const minTotalBits = entropyRate * total;
+
+            document.getElementById('entropyRate').textContent = entropyRate.toFixed(4);
+            document.getElementById('minTotalBits').textContent = minTotalBits.toFixed(2);
+
+            // 2. Compress
+            try {
+                const coder = new RangeCoder(freqs);
+                globalModel = coder;
+                compressedValue = coder.compress(originalData);
+
+                document.getElementById('compressedOutput').textContent = compressedValue;
+                document.getElementById('compressedLength').textContent = compressedValue.length;
+                document.getElementById('decompressedOutput').textContent = 'Ready for decoding...';
+
+                setStatus(`Compression complete. The result is a high-precision number representing the data.`, 'success');
+
+            } catch (error) {
+                setStatus(`Compression Error: ${error.message}`, 'error');
+            }
+        }
+
+        function handleDecompression() {
+            if (!compressedValue || !globalModel) {
+                setStatus("Please run compression first.", 'info');
+                return;
+            }
+
+            const dataLength = originalData.length;
+
+            // 1. Decompress
+            const decompressedData = globalModel.decompress(compressedValue, dataLength);
+            document.getElementById('decompressedOutput').textContent = decompressedData;
+
+            // 2. Verification
+            if (decompressedData === originalData) {
+                setStatus(`VERIFICATION: Lossless decoding Successful! Original = Decoded.`, 'success');
+            } else {
+                setStatus(`VERIFICATION: Decoding Error! Original: ${originalData}, Decoded: ${decompressedData}`, 'error');
+            }
+        }
+
+        // Run on load to display initial info
+        handleCompression();
+    </script>
+</body>
+</html>
